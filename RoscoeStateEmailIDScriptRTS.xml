@@ -1,0 +1,142 @@
+<!-- ###################################################################### -->
+<!-- #                   Roscoe State Email ID Script RTS                 # -->
+<!-- # This script file is used to process a list of email files by       # -->
+<!-- # correcting the issue of email threading. The issue that this fixes # -->
+<!-- # is when a state email is sent to the shop and is reponded to, the  # -->
+<!-- # email is sent back to the state side, but when sent, the email     # -->
+<!-- # thread gets lost and a new one is created.  This script was        # -->
+<!-- # created to correct this issue by, searching for a state email ID   # -->
+<!-- # containing the chararcters RTSEMAILID, adding the email ID to the  # -->
+<!-- # email header, and then removing the RTSEMAILID flags.              # -->
+<!-- #                                                                    # -->
+<!-- # NOTE: This script was created to work alongside the application    # -->
+<!-- # named Roscoe. This script is only meant to process 'Roscoe'        # -->
+<!-- # converted emails .                                                 # -->
+<!-- # Created By:  Richard Salas                                         # -->
+<!-- ###################################################################### -->
+<project name="RoscoeStateEmailIDScriptRTS" default="run">
+
+	<!-- Adds task definitions to this project (i.e. if, for, throw, ..., ect.) -->
+	<taskdef resource="net/sf/antcontrib/antlib.xml"/>
+
+	<target name="run" description="Default Run" depends="start, init, process, stop" />
+
+	<!-- =================================================================== -->
+	<!-- Start the Log                                                       -->
+	<!-- =================================================================== -->
+	<target name="start" description="starts build.log">
+		<record name="${basedir}/RoscoeStateEmailIDScriptRTS.log" action="start" loglevel="verbose" append="true"/>
+	</target>
+
+	<!-- =================================================================== -->
+	<!-- Stop the Log                                                        -->
+	<!-- =================================================================== -->
+	<target name="stop" depends="start" description="stops and changes name of RoscoeStateEmailIDScriptRTS.log">
+	<echo>+---------------------------------------------------+</echo>
+	<echo>|                                                   |</echo>
+	<echo>| S T O P    R O S C O E    L O G                   |</echo>
+	<echo>|                                                   |</echo>
+	<echo>+---------------------------------------------------+</echo>
+		<record name="${basedir}/RoscoeStateEmailIDScriptRTS.log" action="stop" loglevel="verbose"/>
+		<move file="${basedir}/RoscoeStateEmailIDScriptRTS.log" tofile="${basedir}/RoscoeStateEmailIDScriptRTS.${DSTAMP}${TSTAMP}.log"/>
+	</target>
+
+	<!-- =================================================================== -->
+	<!-- Initialize the Properties                                           -->
+	<!-- =================================================================== -->
+	<target name="init">
+		<echo>+---------------------------------------------------+</echo>
+		<echo>|                                                   |</echo>
+		<echo>| I N I T A L I Z E    B U I L D                    |</echo>
+		<echo>|                                                   |</echo>
+		<echo>+---------------------------------------------------+</echo>
+		<tstamp />
+		<property environment="env"/>
+
+		<echo>+---------------------------------------------------+</echo>
+		<echo>|Print a list of all properties and their values    |</echo>
+		<echo>+---------------------------------------------------+</echo>
+		<echoproperties/>
+	</target>
+
+	<!-- =================================================================== -->
+	<!-- Process the emails                                                  -->
+	<!-- =================================================================== -->
+	<target name="process">
+		<echo>+----------------------------------------------------------------------------------+</echo>
+		<echo>|                                                                                  |</echo>
+		<echo>|  F I X I N G   E M A I L   A S S O C I A T I O N   F O R   S T A T E   E M A I L |</echo>
+		<echo>|                                                                                  |</echo>
+		<echo>+----------------------------------------------------------------------------------+</echo>
+		<for param="file">
+			<path>
+				<fileset dir="${basedir}" includes="*.eml"/>
+			</path>
+			<sequential>
+				<if>
+					<isfileselected file="@{file}">
+						 <contains text="RTSEMAILID" casesensitive="yes"/>
+					</isfileselected>
+					<then>
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<echo>| LOADING EMAIL TO OBTAIN STATE MESSAGE ID VALUE                                   |</echo>
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<echo>Processing @{file}</echo>
+						<loadfile property="emailID" srcFile="@{file}">
+							<filterchain>
+								<linecontainsregexp>
+									<regexp pattern=".*\&lt;RTSEMAILID[a-zA-Z0-9]{2,}.*\&gt;"/>
+								</linecontainsregexp>
+								<striplinebreaks/>
+								<tokenfilter>
+									<replaceregex pattern="(.*)(\&lt;RTSEMAILID)([a-zA-Z0-9].*)(\&gt;.*)" replace="\3" flags="i"/>
+								</tokenfilter>
+							</filterchain>
+						</loadfile>
+						<echo>Email ID: ${emailID}</echo>
+
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<echo>| REMOVING THE STATE MESSAGE ID VALUES BEFORE MAKING CHANGES TO EML FILE           |</echo>
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<replace file="@{file}" token="&lt;RTSEMAILID${emailID}&gt;" value="" summary="true"/>
+						<replace file="@{file}" summary="true">
+							<replacetoken expandProperties="true"><![CDATA[&lt;RTSEMAILID${emailID}&gt;]]></replacetoken>
+							<replacevalue><![CDATA[]]></replacevalue>
+						</replace>
+						<replace file="@{file}" token="RTSEMAILID" value="" summary="true"/>
+
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<echo>| ADDING/MODIFYING IN-REPLOY-TO HEADER WITH THE STATE MESSAGE ID                   |</echo>
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<if>
+							<isfileselected file="@{file}">
+								 <contains text="In-Reply-To: &lt;" casesensitive="yes"/>
+							</isfileselected>
+							<then>
+								<echo>File contains the in reply to header.</echo>
+								<replaceregexp file="@{file}" match="(In-Reply-To: )&lt;(.*)&gt;\r\n" replace="\1&lt;${emailID}&gt;${line.separator}" flags="m" />
+							</then>
+							<else>
+								<echo>File does not contain the in reply to header...going to make adjustments to add it.</echo>
+								<replaceregexp file="@{file}" match="(MIME-Version: )(.*\r\n)" replace="\1\2In-Reply-To: &lt;${emailID}&gt;${line.separator}" flags="m" />
+							</else>
+						</if>
+
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<echo>| REMOVING REFERENCES HEADER FROM THE EMAIL                                        |</echo>
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<replaceregexp file="@{file}" match="(References: \&lt;)(.*\&gt;\r\n)" replace="" flags="m" />
+						<var name="emailID" unset="true" />
+					</then>
+					<else>
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<echo>| SKIPPING FILE FROM BEING PROCESSED SINCE IT DOES NOT CONTAIN A MESSAGE ID        |</echo>
+						<echo>+----------------------------------------------------------------------------------+</echo>
+						<echo>Skipping @{file} because it does not contain the RTSEMAILID.</echo>
+					</else>
+				</if>
+			</sequential>
+		</for>
+	</target>
+
+</project>
